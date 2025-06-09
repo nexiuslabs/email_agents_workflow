@@ -1,0 +1,16 @@
+crewai 
+crewai-tools 
+psycopg2-binary 
+openai
+fastapi
+uvicorn
+python-dotenv
+msal
+pybreaker
+prometheus_client
+python-multipart
+PyJWT
+openai
+msal
+prometheus_client
+dateparser

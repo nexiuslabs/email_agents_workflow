@@ -1,2 +1,2 @@
-# email_agents_workflow
-Multiple Agents Workflow Setup for Email
+# aigent
+Crew AI Agents get context from knowledge database and generate a message based on knowledge.
