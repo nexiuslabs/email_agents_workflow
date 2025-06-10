@@ -181,6 +181,8 @@ email_data_extractor_agent = Agent(
     allow_delegation=False,
 )
 
+#=============== Email Sender ================
+
 email_sender_agent = Agent(
     role="Email Sender",
     goal="Send approved emails using Microsoft Graph API securely and reliably.",
@@ -191,6 +193,57 @@ email_sender_agent = Agent(
     llm_config={"model": "gpt-o4-mini", "temperature": 0.2},
     allow_delegation=False,
 )
+
+send_email_task = Task(
+    description="Send the finalized email via Microsoft Graph API. Include attachments from the context if any.",
+    expected_output="Confirmation message with email details or error.",
+    input_keys=["receiver", "sender", "subject", "content"],
+    context_keys=["attachments"],  # ✅ This is the missing link
+    agent=email_sender_agent,
+)
+
+email_sender_data_extractor_agent = Agent(
+    role="Email Sender Data Extractor",
+    goal="Extract receiver, subject, and body fields from formatted email content.",
+    backstory="You are a parsing and extraction expert specialized in processing formatted email text."
+    "Your goal is to accurately extract key email fields and return them in a structured JSON format."
+    "You must handle various formatting styles and always ensure clean and precise extraction.",
+    tools=[send_email],
+    memory=False,
+    verbose=True,
+    llm_config={"model": "gpt-o4-mini", "temperature": 0.2},
+    allow_delegation=False,
+)
+
+extract_email_sender_fields_task = Task(
+    description=""" Given a formatted {question} string and {sender_email} string, extract the following fields:
+    - sender → Extract from line starting with "From : "
+    - receiver → Extract from line starting with "To : "
+    - subject → Extract from line starting with "Subject : "
+    - body → All text after the subject line and blank line(s).
+
+    The final result MUST be valid JSON in this exact structure:
+
+    {
+      "sender": "...",
+      "receiver": "...",
+      "subject": "...",
+      "body": "..."
+    }
+
+    Your final answer MUST be ONLY the JSON object, with no additional commentary.
+
+    Here is the formatted question and sender email:
+
+    {question}
+    {sender_email}""",
+    expected_output="A valid JSON object with sender, receiver, subject, and body fields.",
+    input_keys=["sender_email","question"],
+    output_keys=["sender", "receiver", "subject", "body"],
+    agent=email_sender_agent,
+)
+
+#=========== Conversation ============
 
 email_support_conversation_agent = Agent(
 
@@ -316,13 +369,7 @@ Return the result as valid **JSON** with this structure:
     agent=email_data_extractor_agent
 )
 
-send_email_task = Task(
-    description="Send the finalized email via Microsoft Graph API. Include attachments from the context if any.",
-    expected_output="Confirmation message with email details or error.",
-    input_keys=["receiver", "sender", "subject", "content"],
-    context_keys=["attachments"],  # ✅ This is the missing link
-    agent=email_sender_agent,
-)
+
 
 email_conversation_task = Task(
     description=(
@@ -454,7 +501,7 @@ Output: A dictionary with keys:
 # 3) Categorizer Agent and Task
 # ────────────────────────────────────────────────────────────────────────────────
 
-categorizer_agent = Agent(
+categorizer_agent1 = Agent(
     role="Email Intent Categorizer",
     goal="Classify the email or user request into appropriate handling categories.",
     backstory="Trained to discern if an email needs a reply, contains a task, is a schedule request, or is informational.", 
@@ -463,7 +510,7 @@ categorizer_agent = Agent(
     allow_delegation=False,
 )
 
-categorize_task = Task(
+categorize_task1 = Task(
     description=(
     """
 description: >
@@ -518,6 +565,91 @@ description: >
     Henry  
     Nexius Labs" -> requires_response
 
+    -"send email to henry@nexiuslabs.com to inform new branding assets are available." -> requires_response
+
+  - "We are confirming our participation in the event." -> actionable_task
+  - "I plan to finalize the agenda this week." -> actionable_task
+  - "I will coordinate with the team on the logistics." -> actionable_task
+  - "Please send the finalized agenda." -> requires_response
+  - "Can you confirm the participant list?" -> requires_response
+  - "Please write an email to John about the project." -> requires_response
+  - "Buy now!!!" -> spam
+
+    """
+    ),
+    expected_output="One of: requires_response, actionable_task, schedule_event, no_action, spam, send_email, ask_capability, general",
+    agent=categorizer_agent1,
+    input_keys=["content"],
+    output_keys=["category"]
+)
+
+
+categorizer_agent = Agent(
+    role="Email Intent Categorizer",
+    goal="Classify the email or user request into appropriate handling categories.",
+    backstory="Trained to discern if an email needs a reply, contains a task, is a schedule request, or is informational.", 
+    memory=False, verbose=False,
+    llm_config={"model": "gpt-4", "temperature": 0.2},
+    allow_delegation=False,
+)
+
+categorize_task = Task(
+    description=(
+    """
+description: >
+  You will receive a single string called {content}.
+
+  Your job is to classify this {content} into one of the following categories:
+
+  - 'requires_response': expects a direct reply, asks for information, sends email OR requests the AGENT to perform an action on behalf of the user (such as writing an email, sending email, or executing an instruction), OR is a greeting/conversational opener where a social reply is typically expected.
+
+  - 'actionable_task': contains statements where the USER themselves intends to perform an action or is confirming/planning an action they will do (not asking the agent to do it, nor explicitly asking for a reply). This includes language such as "I will", "I plan to", "We will", "I would like to prepare", "I would like to discuss", "We are confirming", "I will ensure", etc.
+
+  - 'schedule_event': is about scheduling meetings or events.
+
+  - 'no_action': no asking to send email, purely informational, trivial, FYI only, no response or no tasks needed.
+
+  - 'spam': spam, marketing, or irrelevant content.
+
+  IMPORTANT RULE:
+  - If the content contains both instructions for the agent and other actions or information, you should prioritize classifying the message as 'requires_response'.
+  - For example: If the content says "Write an email, send email to <receiver>, and prepare a report", since the first instruction is asking the AGENT to perform an action, the correct classification is 'requires_response'.
+
+  IMPORTANT GUIDELINES:
+  - Do NOT classify as 'requires_response' just because the text ends with 'please let me know' — consider the main intent.
+  - Treat greetings ("Hi", "Hello there", "Good morning", etc.) as 'requires_response'.
+  - If the content describes scheduling, even if polite, classify as 'schedule_event'.
+  - If the content explicitly asks the AGENT to perform an action (write email, send email, generate, notify, summarize, etc.) and content starts with 'send_email', 'write email', 'email to', classify as 'requires_response' even if the content also contains other words like 'prepare' or 'finalize'.
+  - If the content contains tasks or requests clearly intended for the USER to perform action step, classify as 'actionable_task'.
+  - If the content is clearly junk or ads, classify as 'spam'.
+  - Use your best judgment to pick exactly ONE category.
+
+  Examples:
+  - "Hello there" -> requires_response
+  - "Hi" -> requires_response
+  - "Good afternoon" -> requires_response
+  - "Can you provide the report?" -> requires_response
+  - "Please write an email to John about the project." -> requires_response
+  - "Send Email to <receiver>" -> requires_response
+  - "Send the project summary to the team." -> requires_response
+  - "Generate the monthly report and email it to finance." -> requires_response
+  - "Write email to henry about the event and prepare the event agenda." -> requires_response
+  - "FYI, we updated the server." -> no_action
+  - "Please schedule a meeting for next week." -> schedule_event
+  - "Prepare the budget by Friday." -> actionable_task
+  - "You need to finalize the presentation slides." -> actionable_task
+  - "I would like to prepare the event materials." -> actionable_task
+  - "send email To: henry@nexiuslabs.com,
+    Subject : Preparation for Product Announcement Event on Tuesday,
+    Dear Henry,
+    I hope this message finds you well. I am writing to confirm your participation in the upcoming Product Announcement Event at MICT Park next Tuesday.
+    Please ensure that all technical documentation is prepared and finalized before the end of this week, specifically by Friday, to ensure a smooth presentation during the event.
+    If you have any questions or require assistance, feel free to reach out.Best regards,  
+    Henry  
+    Nexius Labs" -> requires_response
+
+    -"send email to henry@nexiuslabs.com to inform new branding assets are available." -> requires_response
+
   - "We are confirming our participation in the event." -> actionable_task
   - "I plan to finalize the agenda this week." -> actionable_task
   - "I will coordinate with the team on the logistics." -> actionable_task
@@ -533,7 +665,6 @@ description: >
     input_keys=["content"],
     output_keys=["category"]
 )
-
 
 # ────────────────────────────────────────────────────────────────────────────────
 # 4) Summarizer Agent and Task (for “no_action” emails)

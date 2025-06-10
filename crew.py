@@ -109,11 +109,11 @@ casual_crew = Crew(
 
 email_onboard_crew = Crew(
     agents=[
-        email_data_extractor_agent
+        email_sender_data_extractor_agent
        
         ],
     tasks=[
-        extract_email_fields_task    
+        extract_email_sender_fields_task    
     ],
     process=Process.sequential,
     verbose=True
@@ -252,11 +252,11 @@ def Email_Crew_Pipeline(input_payload):
             # Now parse clean JSON
             final_json = json.loads(clean_output)
             
-            sender = final_json.get("sender")
+            sender = input_payload.get("sender")
             receiver = final_json.get("receiver")
             subject = final_json.get("subject")
             content = final_json.get("content")
-            attachments = final_json.get("attachments")
+            attachments = input_payload.get("attachments")
 
             result = send_email.run(
                 sender=sender,
@@ -265,8 +265,10 @@ def Email_Crew_Pipeline(input_payload):
                 content=content,
                 attachments= attachments if attachments else None
             )
-            # email_crew’s final “output” is usually the send_result (confirmation string or error)
-            answer = getattr(result, "output", str(result))
+            if result:
+                answer = f"Email was sent to {receiver} successfully"
+            else:
+                answer = "Sorry, there is problem occured. Failed to Sent Email"
             return {"type": "email_sent", "question": input_payload.get("question"), "answer": answer}
 
         else:
