@@ -14,3 +14,5 @@ openai
 msal
 prometheus_client
 dateparser
+msgraph-core
+tzlocal

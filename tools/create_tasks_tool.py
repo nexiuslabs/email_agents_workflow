@@ -34,10 +34,12 @@ def create_tasks_from_summary(summary: str, id: str, userId: int) -> str:
     result_lines = []
 
     for task in tasks:
-        title = task.get("title", "").strip()
-        detail = task.get("detail", "").strip()
-        raw_due_at = task.get("due_at", "").strip()
+        # Handle possible None values safely
+        title = (task.get("title") or "").strip()
+        detail = (task.get("detail") or "").strip()
+        raw_due_at = (task.get("due_at") or "").strip()
 
+        # Parse date if present, otherwise default to 3 days from now
         due_at = parse_date(raw_due_at, settings={"PREFER_DATES_FROM": "future"}) if raw_due_at else datetime.now() + timedelta(days=3)
 
         if not (title and detail):
@@ -45,7 +47,6 @@ def create_tasks_from_summary(summary: str, id: str, userId: int) -> str:
             continue
 
         try:
-            # Try inserting with due_at
             insert_new_task(
                 user_id=userId,
                 mail_id=id,

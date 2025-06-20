@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 @tool("Insert email record into database")
-def insert_email_record(summary: str, id: str, userId: int, subject: str, sender: str) -> str:
+def insert_email_record(summary: str, id: str, userId: int, subject: str, sender: str,body_preview: str) -> str:
     """
     Inserts a summarized email into the Emails table.
 
@@ -33,6 +33,8 @@ def insert_email_record(summary: str, id: str, userId: int, subject: str, sender
             subject=subject,
             body_summary=summary,
             sender=sender,
+            body_detail=body_preview
+            
         )
         return f"✅ Inserted email record with ID {new_id}."
     except Exception as e:

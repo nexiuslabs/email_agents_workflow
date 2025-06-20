@@ -123,7 +123,7 @@ def insert_reply_message(conversation_id: int, is_user: bool, content: str) -> N
     finally:
         conn.close()
 
-def record_qa(conversation_id: int, question: str, answer: str, file_urls: str = None) -> int:
+def insert_record(conversation_id: int, question: str, answer: str, file_urls: str = None) -> int:
     """
     Convenience function to record a QA interaction end-to-end:
       1. Ensures the user exists (or creates them).
@@ -266,6 +266,7 @@ def list_tasks_by_user_id(user_id: int):
     finally:
         conn.close()
 
+#============ Email  =============
 def get_mail_id_by_task_id(task_id: int) -> int:
     """
     Retrieve mail_id associated with a given task_id from the Tasks table.
@@ -281,9 +282,8 @@ def get_mail_id_by_task_id(task_id: int) -> int:
     finally:
         conn.close()
 
-
 #=========== Email Table ===============
-def insert_email(user_id: int, mail_id: str, subject: str, body_summary: str, sender: str) -> int:
+def insert_email(user_id: int, mail_id: str, subject: str, body_summary: str, sender: str, body_detail: str) -> int:
     """
     Insert a new email into the Emails table.
     Returns the id of the new email.
@@ -292,12 +292,30 @@ def insert_email(user_id: int, mail_id: str, subject: str, body_summary: str, se
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO email_records (user_id, mail_id, subject, body_summary, sender)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO email_records (user_id, mail_id, subject, body_summary, sender, body_detail)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (user_id, mail_id, subject, body_summary, sender))
+            """, (user_id, mail_id, subject, body_summary, sender, body_detail))
             row = cur.fetchone()
             conn.commit()
             return row[0]
     finally:
         conn.close()
+
+
+def update_draft_reply(mail_id: str, ai_draft_reply: str) -> None:
+    """
+    Update the draft reply and body detail of a mail record with given mail_id.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE email_records
+                SET ai_draft_reply = %s
+                WHERE mail_id = %s
+            """, (ai_draft_reply, mail_id))
+            conn.commit()
+    finally:
+        conn.close()
+
