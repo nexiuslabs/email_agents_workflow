@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from db_utils import insert_record, update_conversation_title, upload_file
+from db_utils import insert_record, update_conversation_title, upload_file, update_draft_reply
 from crew import manager_orchestrator
 import base64
 import json
@@ -84,7 +84,6 @@ from fastapi import Form, File, UploadFile  # <— make sure these are imported
 import base64
 
 # …
-
 @app.post("/ask", dependencies=[Depends(verify_jwt_token)], response_model=AnswerResponse)
 async def ask_question(
     type: str = Form(...),
@@ -171,7 +170,6 @@ class DraftReplyRequest(BaseModel):
     question: str
     attachments: List[str] = []
 
-
 @app.post("/replyMail", dependencies=[Depends(verify_jwt_token)])
 async def draft_reply_endpoint(
     question: str = Form(...),
@@ -218,11 +216,6 @@ async def draft_reply_endpoint(
         logger.exception("Error in /draftReply endpoint:")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-# ──────────────────────────────────────────────────────────────
-# Reminder Endpoint (from crew.py logic)
-# ──────────────────────────────────────────────────────────────
 # Preview draft reply endpoint: protected
 class PreviewDraftReplyRequest(BaseModel):
     sender: str
@@ -252,6 +245,75 @@ def preview_draft_reply_endpoint(
         logger.exception("Error in /draftReplyPreview endpoint:")
         raise HTTPException(status_code=500, detail=str(e))
 
+class SendEmailRequest(BaseModel):
+    question: str
+    sender: str
+    attachments: Optional[list] = None
+
+@app.post("/sendEmail", dependencies=[Depends(verify_jwt_token)])
+async def send_email_endpoint(
+    question: str = Form(...),
+    sender: str = Form(...),
+    files: List[UploadFile] = File(default=None),
+):
+    """
+    Endpoint to send an email using the orchestrated pipeline.
+    Accepts: {question, sender, attachments}
+    """
+    try:
+        # 1) Read & encode attachments, if any
+        attachments = []
+        if files:
+            for f in files:
+                data = await f.read()
+                attachments.append({
+                    "filename": f.filename,
+                    "size": len(data),
+                    "content": base64.b64encode(data).decode("utf-8"),
+                    "content_type": f.content_type or "application/octet-stream",
+                })
+
+        # 2) Build the payload for your orchestrator
+        send_payload = {
+            "question": question,
+            "sender_email": sender,
+            "attachments": attachments or None,
+        }
+
+        logger.info(f"[Orchestrator] Sending email: {send_payload}")
+        send_result = email_onboard_crew.kickoff(inputs=send_payload)
+        raw_output = str(send_result)
+
+        # Strip triple backticks and markdown labeling if present
+        clean_output = raw_output.strip().removeprefix('"json').removesuffix('"""').strip()
+
+        # Now parse clean JSON
+        final_json = json.loads(clean_output)
+        sender = sender
+        receiver = final_json.get("receiver")
+        subject = final_json.get("subject")
+        content = final_json.get("content")
+        attachments = attachments
+
+        result = send_email.run(
+            sender=sender,
+            receiver=receiver,
+            subject=subject,
+            content=question,
+            attachments=attachments if attachments else None
+        )
+        if result:
+            answer = f"Email was sent to {receiver} successfully"
+        else:
+            answer = "Sorry, there is problem occured. Failed to Sent Email"
+        return JSONResponse(content={"type": "email_sent", "question": question, "answer": answer})
+    except Exception as e:
+        logger.exception("Error in /sendEmail endpoint:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ──────────────────────────────────────────────────────────────
+# Reminder Endpoint (from crew.py logic)
+# ──────────────────────────────────────────────────────────────
 
 from crew import email_onboard_crew, reminder_crew, reminder_todo_crew
 from crew import send_email
@@ -260,7 +322,6 @@ from crew import send_email
 class ReminderRequest(BaseModel):
     sender: str
     question: str
-
 
 @app.post("/todoTask", dependencies=[Depends(verify_jwt_token)])
 def todo_task_endpoint(request: ReminderRequest = Body(...)):
@@ -342,73 +403,6 @@ def event_endpoint(request: EventRequest = Body(...)):
     except Exception as e:
         logger.exception("Error in /event endpoint:")
         raise HTTPException(status_code=500, detail=str(e))
-
-class SendEmailRequest(BaseModel):
-    question: str
-    sender: str
-    attachments: Optional[list] = None
-
-@app.post("/sendEmail", dependencies=[Depends(verify_jwt_token)])
-async def send_email_endpoint(
-    question: str = Form(...),
-    sender: str = Form(...),
-    files: List[UploadFile] = File(default=None),
-):
-    """
-    Endpoint to send an email using the orchestrated pipeline.
-    Accepts: {question, sender, attachments}
-    """
-    try:
-        # 1) Read & encode attachments, if any
-        attachments = []
-        if files:
-            for f in files:
-                data = await f.read()
-                attachments.append({
-                    "filename": f.filename,
-                    "size": len(data),
-                    "content": base64.b64encode(data).decode("utf-8"),
-                    "content_type": f.content_type or "application/octet-stream",
-                })
-
-        # 2) Build the payload for your orchestrator
-        send_payload = {
-            "question": question,
-            "sender_email": sender,
-            "attachments": attachments or None,
-        }
-
-        logger.info(f"[Orchestrator] Sending email: {send_payload}")
-        send_result = email_onboard_crew.kickoff(inputs=send_payload)
-        raw_output = str(send_result)
-
-        # Strip triple backticks and markdown labeling if present
-        clean_output = raw_output.strip().removeprefix('"json').removesuffix('"""').strip()
-
-        # Now parse clean JSON
-        final_json = json.loads(clean_output)
-        sender = sender
-        receiver = final_json.get("receiver")
-        subject = final_json.get("subject")
-        content = final_json.get("content")
-        attachments = attachments
-
-        result = send_email.run(
-            sender=sender,
-            receiver=receiver,
-            subject=subject,
-            content=question,
-            attachments=attachments if attachments else None
-        )
-        if result:
-            answer = f"Email was sent to {receiver} successfully"
-        else:
-            answer = "Sorry, there is problem occured. Failed to Sent Email"
-        return JSONResponse(content={"type": "email_sent", "question": question, "answer": answer})
-    except Exception as e:
-        logger.exception("Error in /sendEmail endpoint:")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 
 

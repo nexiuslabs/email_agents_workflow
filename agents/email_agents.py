@@ -6,11 +6,10 @@ from tools.send_email_tool import send_email
 from tools.get_receiver_email_tool import get_contact_email_by_name
 from tools.read_email_tool import read_email_by_task_id
 from tools.insert_email_tool import insert_email_record
-from tools.fetch_email_thread_tools import fetch_email_thread_by_task_id_tool
+from tools.fetch_email_thread_tools import fetch_email_thread_tool
 from tools.getprofile_tool import get_user_profile_by_email
 from tools.reminder_task_tool import create_todo_task_tool
 from tools.create_calendar_event_tool import create_calendar_event_tool
-from tools.fetch_entire_email_thread_tools import fetch_email_thread_tool
 from tools.next_weekday_date_tool import next_weekday_date_tool
 from tools.reply_email_tool import reply_to_latest_email
 from tools.get_last_recipient_message_tool import get_last_recipient_message_tool
